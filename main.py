@@ -8,21 +8,20 @@ TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID")
 GROQ_API_KEY      = os.environ.get("GROQ_API_KEY")
 
-# Pip size per pair untuk hitung SL buffer 20 pips
 PIP_SIZE = {
-    "XAUUSD": 0.1,
-    "BTCUSD": 1.0,
-    "USDJPY": 0.01,
-    "GBPUSD": 0.0001,
-    "EURUSD": 0.0001,
-    "AUDUSD": 0.0001,
-    "NZDUSD": 0.0001,
-    "USDCAD": 0.0001,
-    "USDCHF": 0.0001,
+    "XAUUSD": 0.1, "BTCUSD": 1.0, "USDJPY": 0.01,
+    "GBPUSD": 0.0001, "EURUSD": 0.0001, "AUDUSD": 0.0001,
+    "NZDUSD": 0.0001, "USDCAD": 0.0001, "USDCHF": 0.0001,
 }
 
 def get_pip(pair):
     return PIP_SIZE.get(pair.upper(), 0.0001)
+
+def row(label, value, col=8):
+    return f"{label:<{col}}: {value}"
+
+def divider():
+    return "-" * 20
 
 def get_ai_reason(signal, pair, tf, entry, tp, sl):
     try:
@@ -67,7 +66,6 @@ def send_telegram(message):
         print(f"Telegram error: {e}")
 
 def parse_pipe(raw):
-    """Parse format: KEY:VALUE|KEY:VALUE"""
     data = {}
     for part in raw.strip().split("|"):
         if ":" in part:
@@ -91,16 +89,53 @@ def webhook():
         tp     = data.get("TP",     None)
         sl     = data.get("SL",     None)
         dtype  = data.get("TYPE",   "SD")
+        result = data.get("RESULT", "-")
 
         pip = get_pip(pair)
 
-        # Hitung TP/SL jika belum ada
+        # ── MARKET SIDEWAY ──
+        if signal == "MARKET SIDEWAY":
+            message = "\n".join([
+                row("SIGNAL", "MARKET SIDEWAY"),
+                row("PAIR",   pair),
+                row("TF",     f"M{tf}"),
+                row("RANGE",  f"{low} - {high}"),
+                divider(),
+                "INFO :\nMarket sedang dalam kondisi ranging/sideway.\nHindari entry terburu-buru,\ntunggu breakout atau sinyal konfluensi."
+            ])
+            send_telegram(message)
+            return {"status": "ok"}, 200
+
+        # ── HIT TP ──
+        if signal == "HIT TP":
+            message = "\n".join([
+                row("SIGNAL", "HIT TP"),
+                row("PAIR",   pair),
+                row("TF",     f"M{tf}"),
+                row("RESULT", result),
+                divider(),
+                "Posisi ditutup dengan PROFIT"
+            ])
+            send_telegram(message)
+            return {"status": "ok"}, 200
+
+        # ── HIT SL ──
+        if signal == "HIT SL":
+            message = "\n".join([
+                row("SIGNAL", "HIT SL"),
+                row("PAIR",   pair),
+                row("TF",     f"M{tf}"),
+                row("RESULT", result),
+                divider(),
+                "Posisi ditutup dengan LOSS"
+            ])
+            send_telegram(message)
+            return {"status": "ok"}, 200
+
+        # ── Hitung TP/SL ──
         try:
             entry_f = float(entry)
-
             if dtype == "MC" and high and low:
-                # BUY ZONE: TP = High, SL = Low - 20 pips
-                # SELL ZONE: TP = Low, SL = High + 20 pips
                 high_f = float(high)
                 low_f  = float(low)
                 if "BUY" in signal:
@@ -109,28 +144,21 @@ def webhook():
                 else:
                     tp = f"{low_f:.2f}"
                     sl = f"{high_f + (pip * 20):.2f}"
-
             elif not tp or not sl:
-                # Default RR 1:2 jika tidak ada data
                 if "BUY" in signal:
                     sl = f"{entry_f - (pip * 20):.2f}"
                     tp = f"{entry_f + (pip * 40):.2f}"
                 else:
                     sl = f"{entry_f + (pip * 20):.2f}"
                     tp = f"{entry_f - (pip * 40):.2f}"
-
         except:
             tp = tp or "-"
             sl = sl or "-"
 
-        # Minta analisa AI
+        # ── Analisa AI ──
         ai_reason = get_ai_reason(signal, pair, tf, entry, tp, sl)
 
-        # Format pesan Telegram — rata kanan ":"
-        col = 8  # lebar kolom label
-        def row(label, value):
-            return f"{label:<{col}}: {value}"
-
+        # ── Format pesan sinyal ──
         message = "\n".join([
             row("SIGNAL", signal),
             row("PAIR",   pair),
@@ -138,7 +166,7 @@ def webhook():
             row("ENTRY",  entry),
             row("TP",     tp),
             row("SL",     sl),
-            f"{'-'*20}",
+            divider(),
             f"REASON :\n{ai_reason}"
         ])
 
