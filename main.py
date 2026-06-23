@@ -5,27 +5,23 @@ import json
 
 app = Flask(__name__)
 
-# ============================================================
-#   KONFIGURASI — isi via Environment Variables di Railway
-# ============================================================
 TELEGRAM_TOKEN    = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID  = os.environ.get("TELEGRAM_CHAT_ID")
 GROQ_API_KEY      = os.environ.get("GROQ_API_KEY")
 
-# ============================================================
-#   FUNGSI: Minta analisa ke Groq AI
-# ============================================================
-def get_ai_reason(signal_text):
+def get_ai_reason(signal, pair, tf, entry):
     try:
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
 
-        prompt = f"""Kamu adalah analis trading profesional. 
-Berikan analisa singkat maksimal 2 kalimat dalam bahasa Indonesia untuk sinyal trading berikut:
-
-{signal_text}
+        prompt = f"""Kamu adalah analis trading profesional.
+Berikan analisa singkat maksimal 2 kalimat dalam bahasa Indonesia untuk sinyal berikut:
+- Sinyal  : {signal}
+- Pair    : {pair}
+- Timeframe: M{tf}
+- Entry   : {entry}
 
 Fokus pada: kenapa area ini penting dan konfirmasi sinyal yang terjadi.
 Jawab langsung tanpa pembuka seperti "Tentu" atau "Berikut analisa".
@@ -34,9 +30,7 @@ Jawab langsung tanpa pembuka seperti "Tentu" atau "Berikut analisa".
         body = {
             "model": "llama-3.3-70b-versatile",
             "max_tokens": 150,
-            "messages": [
-                {"role": "user", "content": prompt}
-            ]
+            "messages": [{"role": "user", "content": prompt}]
         }
 
         response = requests.post(
@@ -53,9 +47,6 @@ Jawab langsung tanpa pembuka seperti "Tentu" atau "Berikut analisa".
         return f"Analisa tidak tersedia ({str(e)})"
 
 
-# ============================================================
-#   FUNGSI: Kirim pesan ke Telegram
-# ============================================================
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
@@ -68,9 +59,6 @@ def send_telegram(message):
         print(f"Telegram error: {e}")
 
 
-# ============================================================
-#   ENDPOINT: Terima webhook dari TradingView
-# ============================================================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
@@ -80,26 +68,31 @@ def webhook():
         try:
             data = json.loads(raw)
         except:
-            data = {"text": raw}
+            data = {}
 
-        signal_text = data.get("text", raw)
+        # Ambil data dari TradingView
+        signal = data.get("signal", "UNKNOWN")
+        pair   = data.get("pair",   "UNKNOWN")
+        tf     = data.get("tf",     "?")
+        entry  = data.get("entry",  "?")
+        tp     = data.get("tp",     "-")
+        sl     = data.get("sl",     "-")
 
-        # Minta analisa AI dari Groq
-        ai_reason = get_ai_reason(signal_text)
+        # Minta analisa AI
+        ai_reason = get_ai_reason(signal, pair, tf, entry)
 
-        # Susun pesan akhir — hapus REASON lama, ganti dengan AI
-        lines = signal_text.strip().split("\n")
-        message_lines = []
-        for line in lines:
-            if line.startswith("REASON"):
-                continue
-            message_lines.append(line)
+        # Format pesan Telegram
+        message = (
+            f"SIGNAL       : {signal}\n"
+            f"PAIR         : {pair}\n"
+            f"TIMEFRAME    : M{tf}\n"
+            f"PRICE ENTRY  : {entry}\n"
+            f"TP           : {tp}\n"
+            f"SL           : {sl}\n"
+            f"REASON : {ai_reason}"
+        )
 
-        message_lines.append(f"REASON : {ai_reason}")
-        final_message = "\n".join(message_lines)
-
-        send_telegram(final_message)
-
+        send_telegram(message)
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:
@@ -107,9 +100,6 @@ def webhook():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# ============================================================
-#   ENDPOINT: Health check
-# ============================================================
 @app.route("/", methods=["GET"])
 def index():
     return jsonify({"status": "Bot is running!"}), 200
