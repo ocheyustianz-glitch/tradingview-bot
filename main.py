@@ -126,16 +126,21 @@ def webhook():
         # Minta analisa AI
         ai_reason = get_ai_reason(signal, pair, tf, entry, tp, sl)
 
-        # Format pesan Telegram
-        message = (
-            f"SIGNAL       : {signal}\n"
-            f"PAIR         : {pair}\n"
-            f"TIMEFRAME    : M{tf}\n"
-            f"PRICE ENTRY  : {entry}\n"
-            f"TP           : {tp}\n"
-            f"SL           : {sl}\n"
-            f"REASON : {ai_reason}"
-        )
+        # Format pesan Telegram — rata kanan ":"
+        col = 8  # lebar kolom label
+        def row(label, value):
+            return f"{label:<{col}}: {value}"
+
+        message = "\n".join([
+            row("SIGNAL", signal),
+            row("PAIR",   pair),
+            row("TF",     f"M{tf}"),
+            row("ENTRY",  entry),
+            row("TP",     tp),
+            row("SL",     sl),
+            f"{'-'*20}",
+            f"REASON :\n{ai_reason}"
+        ])
 
         send_telegram(message)
         return {"status": "ok"}, 200
